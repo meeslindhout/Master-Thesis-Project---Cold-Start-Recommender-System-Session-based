@@ -15,6 +15,7 @@ import torch.optim as optim
 import random
 import os
 from collections import defaultdict, deque
+from datetime import datetime
 
 # Prepare data for offline evaluation
 class log_to_trajectory_converter():
@@ -144,8 +145,9 @@ class OfflineDQNAgent:
                  state_size, 
                  action_size, 
                  learning_rate=3e-4, 
-                 gamma=0.99, 
-                 model_save_path="dqn_model.pth"):
+                 gamma=0.99,
+                 n_history=1):
+        self.n_history = n_history
         self.model = DQN(state_size, action_size)
         self.target_model = DQN(state_size, action_size)
         self.target_model.load_state_dict(self.model.state_dict())
@@ -153,7 +155,6 @@ class OfflineDQNAgent:
         self.loss_fn = nn.MSELoss()
         self.gamma = gamma
         self.memory = deque(maxlen=10000)
-        self.model_save_path = model_save_path
         self.kpi_tracker = {
             'episode_rewards': [],
             'losses': []
@@ -196,7 +197,12 @@ class OfflineDQNAgent:
         self.target_model.load_state_dict(self.model.state_dict())
 
     def save_model(self):
-        torch.save(self.model.state_dict(), self.model_save_path)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        # create directory if it does not exist
+        if not os.path.exists('trained agents'):
+            os.makedirs('trained agents')
+        # save model        
+        torch.save(self.model.state_dict(), f'trained agents/DQN trained agent {timestamp} n_hist{self.n_history}.pth')
 
     def predict(self, state, n_predictions=1):
         '''
