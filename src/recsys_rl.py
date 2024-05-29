@@ -127,11 +127,19 @@ class OfflineEnv(gym.Env):
 
 # DQN model that will be used in the RL agent
 class DQN(nn.Module):
-    def __init__(self, state_size, action_size):
+    def __init__(self, state_size, action_size, n_hiddenlayer_neurons=512):
+        """
+        Initializes the DQN (Deep Q-Network) class.
+
+        Args:
+            state_size (int): The size of the input state.
+            action_size (int): The number of possible actions.
+            n_hiddenlayer_neurons (int, optional): The number of neurons in the hidden layers. Defaults to 512.
+        """
         super(DQN, self).__init__()
-        self.fc1 = nn.Linear(state_size, 128)
-        self.fc2 = nn.Linear(128, 128)
-        self.fc3 = nn.Linear(128, action_size)
+        self.fc1 = nn.Linear(state_size, n_hiddenlayer_neurons)
+        self.fc2 = nn.Linear(n_hiddenlayer_neurons, n_hiddenlayer_neurons)
+        self.fc3 = nn.Linear(n_hiddenlayer_neurons, action_size)
 
     def forward(self, x):
         x = torch.relu(self.fc1(x))
@@ -161,15 +169,48 @@ class OfflineDQNAgent:
         }
 
     def select_action(self, state, epsilon=0.1):
+        """
+        Selects an action based on the given state.
+
+        Parameters:
+            state (list): The current state of the environment.
+            epsilon (float, optional): The exploration rate. Defaults to 0.1.
+
+        Returns:
+            int: The selected action.
+
+        """
         if np.random.rand() < epsilon:
             return np.random.randint(0, self.model.fc3.out_features)
         with torch.no_grad():
             return self.model(torch.FloatTensor(state)).argmax().item()
 
     def step(self, state, action, reward, next_state, done):
+        """
+        Takes a step in the RL environment.
+
+        Args:
+            state (object): The current state of the environment.
+            action (object): The action taken in the environment.
+            reward (float): The reward received for taking the action.
+            next_state (object): The next state of the environment after taking the action.
+            done (bool): Whether the episode is done or not.
+
+        Returns:
+            None
+        """
         self.memory.append((state, action, reward, next_state, done))
 
     def train(self, batch_size=512):
+        """
+        Trains the reinforcement learning model using a batch of experiences from the memory buffer.
+
+        Args:
+            batch_size (int): The size of the batch to sample from the memory buffer. Defaults to 512.
+
+        Returns:
+            None
+        """
         if len(self.memory) < batch_size:
             return
         batch = random.sample(self.memory, batch_size)
@@ -196,13 +237,45 @@ class OfflineDQNAgent:
     def update_target_model(self):
         self.target_model.load_state_dict(self.model.state_dict())
 
-    def save_model(self):
+    def save_model(self, dataset_name):
+        """
+        Saves the agent so that it can be loaded without retraining it.
+
+        Args:
+            dataset_name (str): The name of the dataset.
+
+        Raises:
+            ValueError: If the dataset name is not provided.
+
+        Returns:
+            None
+        """
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         # create directory if it does not exist
         if not os.path.exists('trained agents'):
             os.makedirs('trained agents')
+            
+        # raise error if dataset name is not provided
+        if dataset_name is None:
+            raise ValueError('Please provide a dataset name.')        
+        # create folder for dataset if it does not exist
+        if not os.path.exists(f'trained agents/{dataset_name}'):
+            os.makedirs(f'trained agents/{dataset_name}')
         # save model        
         torch.save(self.model.state_dict(), f'trained agents/DQN trained agent {timestamp} n_hist{self.n_history}.pth')
+      
+    def load_model(self, filepath):        
+        '''
+        Loads a pre-trained model from the given file path.
+
+        Args:
+            filepath (str): Path to the file containing the saved model state_dict.
+
+        Returns:
+            None
+        '''
+        self.model.load_state_dict(torch.load(filepath))
+        self.model.eval()
 
     def predict(self, state, n_predictions=1):
         '''
