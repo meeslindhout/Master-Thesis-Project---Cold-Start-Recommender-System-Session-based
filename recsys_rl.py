@@ -140,7 +140,12 @@ class DQN(nn.Module):
 
 # DQN RL agent
 class OfflineDQNAgent:
-    def __init__(self, state_size, action_size, learning_rate=0.001, gamma=0.99, model_save_path="dqn_model.pth"):
+    def __init__(self, 
+                 state_size, 
+                 action_size, 
+                 learning_rate=3e-4, 
+                 gamma=0.99, 
+                 model_save_path="dqn_model.pth"):
         self.model = DQN(state_size, action_size)
         self.target_model = DQN(state_size, action_size)
         self.target_model.load_state_dict(self.model.state_dict())
@@ -163,7 +168,7 @@ class OfflineDQNAgent:
     def step(self, state, action, reward, next_state, done):
         self.memory.append((state, action, reward, next_state, done))
 
-    def train(self, batch_size=64):
+    def train(self, batch_size=512):
         if len(self.memory) < batch_size:
             return
         batch = random.sample(self.memory, batch_size)
@@ -193,7 +198,14 @@ class OfflineDQNAgent:
     def save_model(self):
         torch.save(self.model.state_dict(), self.model_save_path)
 
-    def load_model(self):
-        if os.path.exists(self.model_save_path):
-            self.model.load_state_dict(torch.load(self.model_save_path))
-            self.target_model.load_state_dict(torch.load(self.model_save_path))
+    def predict(self, state, n_predictions=1):
+        '''
+        Predict the top n actions for a given state. input is a list of states
+        '''        
+        if not isinstance(states, list):
+            states = [states]
+        states_tensor = torch.FloatTensor(states)
+        with torch.no_grad():
+            q_values = self.model(states_tensor)
+        top_actions = torch.topk(q_values, n_predictions, dim=1).indices
+        return top_actions.tolist()
