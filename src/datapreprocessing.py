@@ -19,17 +19,13 @@ class DataPreprocessor:
             ValueError: If an invalid dataset name is provided.
 
             Notes:
-            - Datasets can be downloaded from Google Drive and should be stored as zips in the "unprocessed" folder.
-                The Google Drive link can be found in the documentation.
             - The Retailrocket original dataset can be found at: https://www.kaggle.com/retailrocket/ecommerce-dataset
             - The Tmall original dataset can be found at: https://tianchi.aliyun.com/dataset/43
-            - The Google Drive is hosted by Malte. (2024). Rn5l/session-rec [Python]. https://github.com/rn5l/session-rec (Original work published 2019)
-                and created for convenience.
             '''
             if dataset_name == "retailrocket":
-                    self.dataset = pd.read_csv(r"data\retailrocket\unprocessed\events.csv")
+                    self.dataset = pd.read_csv(r"data\retailrocket\unprocessed\events.zip")
             elif dataset_name == "tmall":
-                    self.dataset = pd.read_csv(r"data\tmall\unprocessed\dataset15.csv", nrows=100, sep='\t')
+                    self.dataset = pd.read_csv(r"data\tmall\unprocessed\dataset15.zip", sep='\t')
             else:
                     raise ValueError("Invalid dataset name. Please choose 'retailrocket' or 'tmall'.") 
     
