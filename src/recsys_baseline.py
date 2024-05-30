@@ -13,6 +13,7 @@ import os
 import psutil
 import gc
 
+# Base algorithm class which is copied from https://github.com/rn5l/session-rec/blob/master/algorithms/knn/sknn.py
 class ContextKNN:
     '''
     ContextKNN( k, sample_size=500, sampling='recent',  similarity = 'jaccard', remind=False, pop_boost=0, session_key = 'SessionId', item_key= 'ItemId')
