@@ -162,3 +162,4 @@ cython_debug/
 #.idea/
 data/retailrocket/unprocessed/events.csv
 data/tmall/unprocessed/dataset15.csv
+trained agents/*.pth

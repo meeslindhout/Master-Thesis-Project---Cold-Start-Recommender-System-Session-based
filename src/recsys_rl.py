@@ -259,7 +259,7 @@ class OfflineDQNAgent:
         if not os.path.exists(f'trained agents/{dataset_name}'):
             os.makedirs(f'trained agents/{dataset_name}')
         # save model        
-        torch.save(self.model.state_dict(), f'trained agents/DQN trained agent {timestamp} n_hist{self.n_history}.pth')
+        torch.save(self.model.state_dict(), f'trained agents/{dataset_name}/DQN trained agent {timestamp} n_hist{self.n_history}.pth')
       
     def load_model(self, filepath):        
         '''
