@@ -45,11 +45,13 @@ class LogToTrajectoryConverter:
         self.reward_dict = reward_dict
         print('Rewards set successfully.')
     
-    def create_ssar_tensor_trajectories(self, n_history):
+    def create_ssar_tensor_trajectories(self, n_history, mode='cpu_predicting'):
         '''
         Create the trajectories for the SSAR model. Trajectories or sometimes called episodes are created from each session of the passed dataset.
         The trajectories are stored in tensors for faster processing in the RL agent.
         '''        
+        device = torch.device("cuda" if torch.cuda.is_available() and mode == 'gpu_training' else "cpu")
+        
         trajectories_list = []
         grouped = self.data.groupby('session_id')
 
@@ -74,10 +76,10 @@ class LogToTrajectoryConverter:
 
         trajectories_tensor = defaultdict(list)
         for _, row in trajectories_df.iterrows():
-            state_tensor = torch.tensor(row['state'], dtype=torch.float32).cuda()
-            action_tensor = torch.tensor(row['action'], dtype=torch.int64).cuda()
-            reward_tensor = torch.tensor(row['reward'], dtype=torch.float32).cuda()
-            next_state_tensor = torch.tensor(row['next_state'], dtype=torch.float32).cuda()
+            state_tensor = torch.tensor(row['state'], dtype=torch.float32).to(device)
+            action_tensor = torch.tensor(row['action'], dtype=torch.int64).to(device)
+            reward_tensor = torch.tensor(row['reward'], dtype=torch.float32).to(device)
+            next_state_tensor = torch.tensor(row['next_state'], dtype=torch.float32).to(device)
 
             trajectories_tensor[row['session_id']].append((state_tensor, action_tensor, reward_tensor, next_state_tensor))
         
@@ -149,9 +151,11 @@ class OfflineDQNAgent:
                  action_size, 
                  learning_rate=3e-4, 
                  gamma=0.99,
-                 n_history=1):
+                 n_history=1,
+                 mode='cpu_predicting'):
         self.n_history = n_history
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.mode = mode
+        self.device = torch.device("cuda" if torch.cuda.is_available() and mode == 'gpu_training' else "cpu")
         self.model = DQN(state_size, action_size).to(self.device)
         self.target_model = DQN(state_size, action_size).to(self.device)
         self.target_model.load_state_dict(self.model.state_dict())
@@ -259,7 +263,7 @@ class OfflineDQNAgent:
         if not os.path.exists(f'trained agents/{dataset_name}'):
             os.makedirs(f'trained agents/{dataset_name}')
         # save model        
-        torch.save(self.model.state_dict(), f'trained agents/{dataset_name}/DQN trained agent {timestamp} n_hist{self.n_history}.pth')
+        torch.save(self.model.state_dict(), f'trained agents/DQN trained agent {timestamp} n_hist{self.n_history}.pth')
       
     def load_model(self, filepath):        
         '''
@@ -271,7 +275,7 @@ class OfflineDQNAgent:
         Returns:
             None
         '''
-        self.model.load_state_dict(torch.load(filepath))
+        self.model.load_state_dict(torch.load(filepath, map_location=self.device))
         self.model.eval()
 
     def predict(self, states, n_predictions=1):
