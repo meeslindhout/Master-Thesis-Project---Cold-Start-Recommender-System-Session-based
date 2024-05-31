@@ -18,17 +18,17 @@ from collections import defaultdict, deque
 from datetime import datetime
 
 # Prepare data for offline evaluation
-class LogToTrajectoryConverter:
+class LogToEpisodeConverter:
     '''
-    This class is used to map a log file to a trajectory.
-    A trajectory is a list of tuples, where each tuple contains the state, action, reward, and next state to be taken in the environment.
-    When the trajectory is finished, the next state is set to None.
+    This class is used to map a log file to a episode.
+    A episode is a list of tuples, where each tuple contains the state, action, reward, and next state to be taken in the environment.
+    When the episode is finished, the next state is set to None.
     
     Moreover, the reward function is defined in this class to calculate the reward for a given state and action (e.g., click = 1, add to cart = 2, purchase = 3).
     '''
     def __init__(self) -> None:
         self.reward_dict = {}
-        self.tensor_trajectories = None
+        self.tensor_episodes = None
         self.data = None
 
     def load_dataset(self, data: pd.DataFrame):
@@ -45,14 +45,15 @@ class LogToTrajectoryConverter:
         self.reward_dict = reward_dict
         print('Rewards set successfully.')
     
-    def create_ssar_tensor_trajectories(self, n_history, mode='cpu_predicting'):
+    def create_ssar_tensor_episodes(self, n_history, mode='cpu_predicting'):
         '''
-        Create the trajectories for the SSAR model. Trajectories or sometimes called episodes are created from each session of the passed dataset.
-        The trajectories are stored in tensors for faster processing in the RL agent.
+        Create the episodes for the SSAR model. Episodes are created from each session of the passed dataset.
+        An episode is a list of tuples, where each tuple contains the state, action, reward, and next state to be taken in the environment.
+        The episodes are stored in tensors for faster processing in the RL agent.
         '''        
         device = torch.device("cuda" if torch.cuda.is_available() and mode == 'gpu_training' else "cpu")
         
-        trajectories_list = []
+        episodes_list = []
         grouped = self.data.groupby('session_id')
 
         for session_id, group in grouped:
@@ -62,7 +63,7 @@ class LogToTrajectoryConverter:
                 reward = self.reward_dict[group.iloc[i]['event']]
                 next_state = current_state[1:] + [action]
 
-                trajectories_list.append({
+                episodes_list.append({
                     'session_id': session_id,
                     'state': current_state,
                     'action': action,
@@ -72,53 +73,53 @@ class LogToTrajectoryConverter:
 
                 current_state = next_state
 
-        trajectories_df = pd.DataFrame(trajectories_list)
+        episodes_df = pd.DataFrame(episodes_list)
 
-        trajectories_tensor = defaultdict(list)
-        for _, row in trajectories_df.iterrows():
-            state_tensor = torch.tensor(row['state'], dtype=torch.float32).to(device)
+        episodes_tensor = defaultdict(list)
+        for _, row in episodes_df.iterrows():
+            state_tensor = torch.tensor(row['state'], dtype=torch.int64).to(device)
             action_tensor = torch.tensor(row['action'], dtype=torch.int64).to(device)
-            reward_tensor = torch.tensor(row['reward'], dtype=torch.float32).to(device)
-            next_state_tensor = torch.tensor(row['next_state'], dtype=torch.float32).to(device)
+            reward_tensor = torch.tensor(row['reward'], dtype=torch.int16).to(device)
+            next_state_tensor = torch.tensor(row['next_state'], dtype=torch.int64).to(device)
 
-            trajectories_tensor[row['session_id']].append((state_tensor, action_tensor, reward_tensor, next_state_tensor))
+            episodes_tensor[row['session_id']].append((state_tensor, action_tensor, reward_tensor, next_state_tensor))
         
-        self.tensor_trajectories = [trajectory for trajectory in trajectories_tensor.values()]
-        print('Trajectories created successfully.')
+        self.tensor_episodes = [episode for episode in episodes_tensor.values()]
+        print('Episodes created successfully.')
             
 # Custom gym environment for offline evaluation
 class OfflineEnv(gym.Env):
-    def __init__(self, trajectories, n_history):
+    def __init__(self, episodes, n_history):
         super(OfflineEnv, self).__init__()
-        self.trajectories = trajectories
+        self.episodes = episodes
         self.n_history = n_history
         self.current_step = 0
-        self.current_trajectory = 0
+        self.current_episode = 0
 
-        self.state_size = len(trajectories[0][0][0])
-        self.action_size = max([t[1].item() for traj in trajectories for t in traj]) + 1
+        self.state_size = len(episodes[0][0][0])
+        self.action_size = max([t[1].item() for traj in episodes for t in traj]) + 1
 
         self.observation_space = spaces.Box(low=0, high=1, shape=(self.state_size,), dtype=np.float32)
         self.action_space = spaces.Discrete(self.action_size)
 
     def reset(self):
         self.current_step = 0
-        self.current_trajectory = (self.current_trajectory + 1) % len(self.trajectories)
-        state = self.trajectories[self.current_trajectory][self.current_step][0].cpu().numpy()
+        self.current_episode = (self.current_episode + 1) % len(self.episodes)
+        state = self.episodes[self.current_episode][self.current_step][0].cpu().numpy()
         return state
 
     def step(self, action):
-        trajectory = self.trajectories[self.current_trajectory]
+        episode = self.episodes[self.current_episode]
         self.current_step += 1
 
-        if self.current_step >= len(trajectory):
+        if self.current_step >= len(episode):
             done = True
             next_state = np.zeros(self.state_size)
             reward = 0
         else:
-            next_state = trajectory[self.current_step][0].cpu().numpy()
-            reward = trajectory[self.current_step][2].item()
-            done = self.current_step == len(trajectory) - 1
+            next_state = episode[self.current_step][0].cpu().numpy()
+            reward = episode[self.current_step][2].item()
+            done = self.current_step == len(episode) - 1
 
         return next_state, reward, done, {}
 
