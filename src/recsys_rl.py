@@ -281,7 +281,8 @@ class OfflineDQNAgent:
 
     def predict(self, states, n_predictions=1):
         '''
-        Predict the top n actions for a given state. input is a list of states
+        Predict the top n actions for a given state. input is a list of states.
+        For example, if n_history = 3, the state should be a list of 3 integers that indicate the last 3 actions taken in the environment. aka the item ids.
         '''        
         if not isinstance(states, list):
             states = [states]
