@@ -1,22 +1,24 @@
 '''
 Code has been sourced from the following repository:
 Malte. (2024). Rn5l/session-rec [Python]. https://github.com/rn5l/session-rec (Original work published 2019)
-(https://github.com/rn5l/session-rec/blob/master/algorithms/knn/sknn.py)
+(https://github.com/rn5l/session-rec/blob/master/algorithms/knn/vstan.py)
 '''
 from _operator import itemgetter
-from math import sqrt
+from math import sqrt, exp
 import random
 import time
+
+from pympler import asizeof
 import numpy as np
 import pandas as pd
-import os
-import psutil
-import gc
+from math import log10
+from datetime import datetime as dt
+from datetime import timedelta as td
+import math
 
-# Base algorithm class which is copied from https://github.com/rn5l/session-rec/blob/master/algorithms/knn/sknn.py
-class ContextKNN:
+class VSKNN_STAN:
     '''
-    ContextKNN( k, sample_size=500, sampling='recent',  similarity = 'jaccard', remind=False, pop_boost=0, session_key = 'SessionId', item_key= 'ItemId')
+    STAN( k,  sample_size=5000, sampling='recent', remind=True, extend=False, lambda_spw=1.02, lambda_snh=5, lambda_inh=2.05 , session_key = 'SessionId', item_key= 'ItemId', time_key= 'Time' )
 
     Parameters
     -----------
@@ -26,16 +28,16 @@ class ContextKNN:
         Defines the length of a subset of all training sessions to calculate the nearest neighbors from. (Default value: 500)
     sampling : string
         String to define the sampling method for sessions (recent, random). (default: recent)
-    similarity : string
+    remind : string
         String to define the method for the similarity calculation (jaccard, cosine, binary, tanimoto). (default: jaccard)
-    remind : bool
-        Should the last items of the current session be boosted to the top as reminders
-    pop_boost : int
-        Push popular items in the neighbor sessions by this factor. (default: 0 to leave out)
-    extend : bool
-        Add evaluated sessions to the maps
-    normalize : bool
-        Normalize the scores in the end
+    extend : string
+        Decay function to determine the importance/weight of individual actions in the current session (linear, same, div, log, quadratic). (default: div)
+    lambda_spw : string
+        Decay function to lower the score of candidate items from a neighboring sessions that were selected by less recently clicked items in the current session. (linear, same, div, log, quadratic). (default: div_score)
+    lambda_snh : boolean
+        Experimental function to give less weight to items from older sessions (default: False)
+    lambda_inh : boolean
+        Experimental function to use the dwelling time for item view actions as a weight in the similarity calculation. (default: False)
     session_key : string
         Header of the session ID column in the input file. (default: 'SessionId')
     item_key : string
@@ -44,19 +46,27 @@ class ContextKNN:
         Header of the timestamp column in the input file. (default: 'Time')
     '''
 
-    def __init__( self, k, sample_size=1000, sampling='recent',  similarity = 'jaccard', remind=False, pop_boost=0, extend=False, normalize=True, session_key = 'SessionId', item_key= 'ItemId', time_key= 'Time' ):
+    def __init__( self, k, sample_size=5000, sampling='recent', remind=True, extend=False, similarity='cosine', lambda_spw=1.02, lambda_snh=5, lambda_inh=2.05, lambda_ipw=1.02, lambda_idf=5, session_key = 'SessionId', item_key= 'ItemId', time_key= 'Time' ):
        
-        self.remind = remind
         self.k = k
         self.sample_size = sample_size
         self.sampling = sampling
+        
         self.similarity = similarity
-        self.pop_boost = pop_boost
+        
+        self.lambda_spw = lambda_spw
+        self.lambda_snh = lambda_snh * 24 * 3600 #in days
+        self.lambda_inh = lambda_inh
+        
+        self.lambda_ipw = lambda_ipw
+        self.lambda_idf = lambda_idf
+        
         self.session_key = session_key
         self.item_key = item_key
         self.time_key = time_key
+        
         self.extend = extend
-        self.normalize = normalize
+        self.remind = remind
         
         #updated while recommending
         self.session = -1
@@ -67,10 +77,11 @@ class ContextKNN:
         self.session_item_map = dict() 
         self.item_session_map = dict()
         self.session_time = dict()
+        self.min_time = -1
         
         self.sim_time = 0
         
-    def fit(self, train, items=None):
+    def fit(self, train, test=None, items=None):
         '''
         Trains the predictor.
         
@@ -80,14 +91,15 @@ class ContextKNN:
             Training data. It contains the transactions of the sessions. It has one column for session IDs, one for item IDs and one for the timestamp of the events (unix timestamps).
             It must have a header. Column names are arbitrary, but must correspond to the ones you set during the initialization of the network (session_key, item_key, time_key properties).
             
-        '''
+        '''            
+        self.num_items = train[self.item_key].max()
         
         index_session = train.columns.get_loc( self.session_key )
         index_item = train.columns.get_loc( self.item_key )
         index_time = train.columns.get_loc( self.time_key )
         
         session = -1
-        session_items = set()
+        session_items = []
         time = -1
         #cnt = 0
         for row in train.itertuples(index=False):
@@ -97,10 +109,12 @@ class ContextKNN:
                     self.session_item_map.update({session : session_items})
                     # cache the last time stamp of the session
                     self.session_time.update({session : time})
+                    if time < self.min_time:
+                        self.min_time = time
                 session = row[index_session]
-                session_items = set()
+                session_items = []
             time = row[index_time]
-            session_items.add(row[index_item])
+            session_items.append(row[index_item])
             
             # cache sessions involving an item
             map_is = self.item_session_map.get( row[index_item] )
@@ -113,8 +127,16 @@ class ContextKNN:
         self.session_item_map.update({session : session_items})
         self.session_time.update({session : time})
         
+        if self.lambda_idf is not None: 
+            self.idf = pd.DataFrame()
+            self.idf['idf'] = train.groupby( self.item_key ).size()
+            self.idf['idf'] = np.log( train[self.session_key].nunique() / self.idf['idf'] )
+            self.idf = self.idf['idf'].to_dict()
         
-    def predict_next(self, session_id, input_item_id, predict_for_item_ids, skip=False, mode_type='view', timestamp=0):
+        if self.sample_size == 0: #use all session as possible neighbors
+            print('!!!!! runnig KNN without a sample size (check config)')
+        
+    def predict_next( self, session_id, input_item_id, predict_for_item_ids, input_user_id=None, timestamp=0, skip=False, type='view'):
         '''
         Gives predicton scores for a selected set of items on how likely they be the next item in the session.
                 
@@ -137,18 +159,12 @@ class ContextKNN:
 #         gc.collect()
 #         process = psutil.Process(os.getpid())
 #         print( 'cknn.predict_next: ', process.memory_info().rss, ' memory used')
-
-        # if(type(session_id) is np.ndarray):
-        #     session_id = session_id[0]
-        # if(type(input_item_id) is np.ndarray):
-        #     input_item_id = input_item_id[0]
-
+        
         if( self.session != session_id ): #new session
             
             if( self.extend ):
-                item_set = set( self.session_items )
-                self.session_item_map[self.session] = item_set;
-                for item in item_set:
+                self.session_item_map[self.session] = self.session_items;
+                for item in self.session_items:
                     map_is = self.item_session_map.get( item )
                     if map_is is None:
                         map_is = set()
@@ -158,54 +174,18 @@ class ContextKNN:
                 ts = time.time()
                 self.session_time.update({self.session : ts})
                 
-                
             self.session = session_id
             self.session_items = list()
             self.relevant_sessions = set()
         
-        if mode_type == 'view':
+        if type == 'view':
             self.session_items.append( input_item_id )
         
         if skip:
             return
-                        
-        neighbors = self.find_neighbors( set(self.session_items), input_item_id, session_id )
-        scores = self.score_items( neighbors )
-                
-        # add some reminders
-        if self.remind:
-             
-            reminderScore = 5
-            takeLastN = 3
-             
-            cnt = 0
-            for elem in self.session_items[-takeLastN:]:
-                cnt = cnt + 1
-                #reminderScore = reminderScore + (cnt/100)
-                 
-                oldScore = scores.get( elem )
-                newScore = 0
-                if oldScore is None:
-                    newScore = reminderScore
-                else:
-                    newScore = oldScore + reminderScore
-                #print 'old score ', oldScore
-                # update the score and add a small number for the position 
-                newScore = (newScore * reminderScore) + (cnt/100)
-                 
-                scores.update({elem : newScore})
-        
-        #push popular ones
-        if self.pop_boost > 0:
-               
-            pop = self.item_pop( neighbors )
-            # Iterate over the item neighbors
-            #print itemScores
-            for key in scores:
-                item_pop = pop.get(key)
-                # Gives some minimal MRR boost?
-                scores.update({key : (scores[key] + (self.pop_boost * item_pop))})
          
+        neighbors = self.find_neighbors( self.session_items, input_item_id, session_id, timestamp )
+        scores = self.score_items( neighbors, self.session_items, timestamp )
         
         # Create things in the format ..
         predictions = np.zeros(len(predict_for_item_ids))
@@ -216,46 +196,11 @@ class ContextKNN:
         predictions[mask] = values
         series = pd.Series(data=predictions, index=predict_for_item_ids)
         
-        if self.normalize:
-            series = series / series.max()
-        
         return series 
-
-    def item_pop(self, sessions):
+    
+    def vec(self, current, neighbor, pos_map):
         '''
-        Returns a dict(item,score) of the item popularity for the given list of sessions (only a set of ids)
-        
-        Parameters
-        --------
-        sessions: set
-        
-        Returns
-        --------
-        out : dict            
-        '''
-        result = dict()
-        max_pop = 0
-        for session, weight in sessions:
-            items = self.items_for_session( session )
-            for item in items:
-                
-                count = result.get(item)
-                if count is None:
-                    result.update({item: 1})
-                else:
-                    result.update({item: count + 1})
-                    
-                if( result.get(item) > max_pop ):
-                    max_pop =  result.get(item)
-         
-        for key in result:
-            result.update({key: ( result[key] / max_pop )})
-                   
-        return result
-
-    def jaccard(self, first, second):
-        '''
-        Calculates the jaccard index for two sessions
+        Calculates the ? for 2 sessions
         
         Parameters
         --------
@@ -266,16 +211,16 @@ class ContextKNN:
         --------
         out : float value           
         '''
-        sc = time.clock()
-        intersection = len(first & second)
-        union = len(first | second )
-        res = intersection / union
+        intersection = current & neighbor
+        vp_sum = 0
+        for i in intersection:
+            vp_sum += pos_map[i]
         
-        self.sim_time += (time.clock() - sc)
-        
-        return res 
+        result = vp_sum / len(pos_map)
+
+        return result
     
-    def cosine(self, first, second):
+    def cosine(self, current, neighbor, pos_map):
         '''
         Calculates the cosine similarity for two sessions
         
@@ -288,70 +233,27 @@ class ContextKNN:
         --------
         out : float value           
         '''
-        li = len(first&second)
-        la = len(first)
-        lb = len(second)
-        result = li / sqrt(la) * sqrt(lb)
-
+                
+        lneighbor = len(neighbor)
+        intersection = current & neighbor
+        
+        if pos_map is not None:
+            
+            vp_sum = 0
+            current_sum = 0
+            for i in current:
+                current_sum += pos_map[i] * pos_map[i]
+                if i in intersection:
+                    vp_sum += pos_map[i]
+        else:
+            vp_sum = len( intersection )
+            current_sum = len( current )
+                
+        result = vp_sum / (sqrt(current_sum) * sqrt(lneighbor))
+        
         return result
     
-    def tanimoto(self, first, second):
-        '''
-        Calculates the cosine tanimoto similarity for two sessions
-        
-        Parameters
-        --------
-        first: Id of a session
-        second: Id of a session
-        
-        Returns 
-        --------
-        out : float value           
-        '''
-        li = len(first&second)
-        la = len(first)
-        lb = len(second)
-        result = li / ( la + lb -li )
-
-        return result
     
-    def binary(self, first, second):
-        '''
-        Calculates the ? for 2 sessions
-        
-        Parameters
-        --------
-        first: Id of a session
-        second: Id of a session
-        
-        Returns 
-        --------
-        out : float value           
-        '''
-        a = len(first&second)
-        b = len(first)
-        c = len(second)
-        
-        result = (2 * a) / ((2 * a) + b + c)
-
-        return result
-    
-    def random(self, first, second):
-        '''
-        Calculates the ? for 2 sessions
-        
-        Parameters
-        --------
-        first: Id of a session
-        second: Id of a session
-        
-        Returns 
-        --------
-        out : float value           
-        '''
-        return random.random()
-    
-
     def items_for_session(self, session):
         '''
         Returns all items in the session
@@ -366,7 +268,6 @@ class ContextKNN:
         '''
         return self.session_item_map.get(session);
     
-    
     def sessions_for_item(self, item_id):
         '''
         Returns all session for an item
@@ -379,7 +280,7 @@ class ContextKNN:
         --------
         out : set           
         '''
-        return self.item_session_map.get( item_id )
+        return self.item_session_map.get( item_id ) if item_id in self.item_session_map else set()
         
         
     def most_recent_sessions( self, sessions, number ):
@@ -413,8 +314,34 @@ class ContextKNN:
             sample.add( element[0] )
         #print 'returning sample of size ', len(sample)
         return sample
+
+
+    #-----------------
+    # Find a set of neighbors, returns a list of tuples (sessionid: similarity) 
+    #-----------------
+    def find_neighbors( self, session_items, input_item_id, session_id, timestamp ):
+        '''
+        Finds the k nearest neighbors for the given session_id and the current item input_item_id. 
         
+        Parameters
+        --------
+        session_items: set of item ids
+        input_item_id: int 
+        session_id: int
         
+        Returns 
+        --------
+        out : list of tuple (session_id, similarity)           
+        '''
+        possible_neighbors = self.possible_neighbor_sessions( session_items, input_item_id, session_id )
+        possible_neighbors = self.calc_similarity( session_items, possible_neighbors, timestamp )
+        
+        possible_neighbors = sorted( possible_neighbors, reverse=True, key=lambda x: x[1] )
+        possible_neighbors = possible_neighbors[:self.k]
+        
+        return possible_neighbors
+    
+    
     def possible_neighbor_sessions(self, session_items, input_item_id, session_id):
         '''
         Find a set of session to later on find neighbors in.
@@ -431,16 +358,14 @@ class ContextKNN:
         out : set           
         '''
         
-        self.relevant_sessions = self.relevant_sessions | self.sessions_for_item( input_item_id );
+        self.relevant_sessions = self.relevant_sessions | self.sessions_for_item( input_item_id )
                
         if self.sample_size == 0: #use all session as possible neighbors
             
-            print('!!!!! runnig KNN without a sample size (check config)')
+            #print('!!!!! runnig KNN without a sample size (check config)')
             return self.relevant_sessions
 
         else: #sample some sessions
-                
-            self.relevant_sessions = self.relevant_sessions | self.sessions_for_item( input_item_id );
                          
             if len(self.relevant_sessions) > self.sample_size:
                 
@@ -456,7 +381,7 @@ class ContextKNN:
                 return self.relevant_sessions
                         
 
-    def calc_similarity(self, session_items, sessions ):
+    def calc_similarity(self, session_items, sessions, timestamp ):
         '''
         Calculates the configured similarity for the items in session_items and each session in sessions.
         
@@ -470,48 +395,47 @@ class ContextKNN:
         out : list of tuple (session_id,similarity)           
         '''
         
+        pos_map = None
+        if self.lambda_spw:
+            pos_map = {}
+        length = len( session_items )
+        
+        pos = 1
+        for item in session_items:
+            if self.lambda_spw is not None: 
+                pos_map[item] = self.session_pos_weight( pos, length, self.lambda_spw )
+                pos += 1
+            
         #print 'nb of sessions to test ', len(sessionsToTest), ' metric: ', self.metric
+        items = set(session_items)
         neighbors = []
         cnt = 0
         for session in sessions:
             cnt = cnt + 1
             # get items of the session, look up the cache first 
-            session_items_test = self.items_for_session( session )
-            
-            similarity = getattr(self , self.similarity)(session_items_test, session_items)
-            if similarity > 0:
-                neighbors.append((session, similarity))
+            n_items = self.items_for_session( session )
+
+            similarity = self.cosine(items, set(n_items), pos_map) 
+                            
+            if self.lambda_snh is not None:
+                sts = self.session_time[session]
+                decay = self.session_time_weight(timestamp, sts, self.lambda_snh)
+                
+                similarity *= decay
+                            
+            neighbors.append((session, similarity))
                 
         return neighbors
-
-
-    #-----------------
-    # Find a set of neighbors, returns a list of tuples (sessionid: similarity) 
-    #-----------------
-    def find_neighbors( self, session_items, input_item_id, session_id):
-        '''
-        Finds the k nearest neighbors for the given session_id and the current item input_item_id. 
-        
-        Parameters
-        --------
-        session_items: set of item ids
-        input_item_id: int 
-        session_id: int
-        
-        Returns 
-        --------
-        out : list of tuple (session_id, similarity)           
-        '''
-        possible_neighbors = self.possible_neighbor_sessions( session_items, input_item_id, session_id )
-        possible_neighbors = self.calc_similarity( session_items, possible_neighbors )
-        
-        possible_neighbors = sorted( possible_neighbors, reverse=True, key=lambda x: x[1] )
-        possible_neighbors = possible_neighbors[:self.k]
-        
-        return possible_neighbors
     
+    def session_pos_weight(self, position, length, lambda_spw):
+        diff = position - length
+        return exp( diff / lambda_spw )
+    
+    def session_time_weight(self, ts_current, ts_neighbor, lambda_snh):
+        diff = ts_current - ts_neighbor
+        return exp( - diff / lambda_snh )
             
-    def score_items(self, neighbors):
+    def score_items(self, neighbors, current_session, timestamp):
         '''
         Compute a set of scores for all items given a set of neighbors.
         
@@ -525,22 +449,55 @@ class ContextKNN:
         '''
         # now we have the set of relevant items to make predictions
         scores = dict()
+        s_items = set( current_session )
         # iterate over the sessions
         for session in neighbors:
             # get the items in this session
-            items = self.items_for_session( session[0] )
+            n_items = self.items_for_session( session[0] )
             
-            for item in items:
+            pos_last = {}
+            pos_i_star = None
+            for i in range( len( n_items ) ):
+                if n_items[i] in s_items: 
+                    pos_i_star = i + 1
+                pos_last[n_items[i]] = i + 1
+            
+            n_items = set( n_items )
+            
+            if self.lambda_ipw is not None:
+                
+                for i in range( len( current_session ) ):
+                    if current_session[i] in n_items:
+                        ipw_decay = self.session_pos_weight(i+1, len( current_session ), self.lambda_ipw)       
+            
+            for item in n_items:
+                
+                if not self.remind and item in s_items:
+                    continue
+                
                 old_score = scores.get( item )
+                
                 new_score = session[1]
                 
-                if old_score is None:
-                    scores.update({item : new_score})
-                else: 
+                if self.lambda_inh is not None: 
+                    new_score = new_score * self.item_pos_weight( pos_last[item], pos_i_star, self.lambda_inh )
+                    
+                if self.lambda_idf is not None:
+                    new_score = new_score + ( new_score * self.idf[item] * self.lambda_idf )
+                
+                if self.lambda_ipw is not None:
+                    new_score = new_score * ipw_decay
+                
+                if not old_score is None:
                     new_score = old_score + new_score
-                    scores.update({item : new_score})
+                    
+                scores.update({item : new_score})
                     
         return scores
+    
+    def item_pos_weight(self, pos_candidate, pos_item, lambda_inh):
+        diff = abs( pos_candidate - pos_item )
+        return exp( - diff / lambda_inh )
     
     def clear(self):
         self.session = -1
