@@ -6,7 +6,7 @@ Malte. (2024). Rn5l/session-rec [Python]. https://github.com/rn5l/session-rec (O
 import pandas as pd
 import os
 import time
-import dill
+# import dill
 from pathlib import Path
 
 def ensure_dir(file_path):
@@ -20,25 +20,25 @@ def ensure_dir(file_path):
     if not os.path.exists(directory):
         os.makedirs(directory)
         
-def save_model(key, algorithm, conf):
-    '''
-    Save the model object for reuse with FileModel
-        --------
-        algorithm : object
-            Dictionary of all results res[algorithm_key][metric_key]
-        conf : object
-            Configuration dictionary, has to include results.pickel_models
-    '''
+# def save_model(key, algorithm, conf):
+#     '''
+#     Save the model object for reuse with FileModel
+#         --------
+#         algorithm : object
+#             Dictionary of all results res[algorithm_key][metric_key]
+#         conf : object
+#             Configuration dictionary, has to include results.pickel_models
+#     '''
 
-    file_name = conf['results']['folder'] + '/' + conf['key'] + '_' + conf['data']['name'] + '_' + key + '.pkl'
-    file_name = Path(file_name)
-    ensure_dir(file_name)
-    file = open(file_name, 'wb')
+#     file_name = conf['results']['folder'] + '/' + conf['key'] + '_' + conf['data']['name'] + '_' + key + '.pkl'
+#     file_name = Path(file_name)
+#     ensure_dir(file_name)
+#     file = open(file_name, 'wb')
 
-    # pickle.dump(algorithm, file)
-    dill.dump(algorithm, file)
+#     # pickle.dump(algorithm, file)
+#     dill.dump(algorithm, file)
 
-    file.close()
+#     file.close()
 
 def write_results_csv(results, conf, iteration=None, extra=None):
     '''

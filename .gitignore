@@ -163,3 +163,7 @@ cython_debug/
 data/retailrocket/unprocessed/events.csv
 data/tmall/unprocessed/dataset15.csv
 trained agents/*.pth
+data/retailrocket/prepared/train-item-views_test.txt
+data/retailrocket/prepared/train-item-views_train_full.txt
+data/retailrocket/prepared/train-item-views_train_tr.txt
+data/retailrocket/prepared/train-item-views_train_valid.txt

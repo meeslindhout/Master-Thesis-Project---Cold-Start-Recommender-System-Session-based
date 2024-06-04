@@ -1,9 +1,124 @@
 '''
 Code has been sourced from the following repository:
 Malte. (2024). Rn5l/session-rec [Python]. https://github.com/rn5l/session-rec (Original work published 2019)
+(https://github.com/rn5l/session-rec/blob/5dcd583cbd8d44703a5248b9a308945f24b91390/evaluation/evaluation.py#L238)
 (https://github.com/rn5l/session-rec/blob/master/evaluation/metrics/accuracy.py)
 '''
 import numpy as np
+# import time
+
+def evaluate_sessions(pr, metrics, test_data, train_data, items=None, cut_off=20, session_key='SessionId', item_key='ItemId', time_key='Time'): 
+    '''
+    Evaluates the baselines wrt. recommendation accuracy measured by recall@N and MRR@N. Has no batch evaluation capabilities. Breaks up ties.
+
+    Parameters
+    --------
+    pr : baseline predictor
+        A trained instance of a baseline predictor.
+    metrics : list
+        A list of metric classes providing the proper methods
+    test_data : pandas.DataFrame
+        Test data. It contains the transactions of the test set.It has one column for session IDs, one for item IDs and one for the timestamp of the events (unix timestamps).
+        It must have a header. Column names are arbitrary, but must correspond to the keys you use in this function.
+    train_data : pandas.DataFrame
+        Training data. Only required for selecting the set of item IDs of the training set.
+    items : 1D list or None
+        The list of item ID that you want to compare the score of the relevant item to. If None, all items of the training set are used. Default value is None.
+    cut-off : int
+        Cut-off value (i.e. the length of the recommendation list; N for recall@N and MRR@N). Defauld value is 20.
+    session_key : string
+        Header of the session ID column in the input file (default: 'SessionId')
+    item_key : string
+        Header of the item ID column in the input file (default: 'ItemId')
+    time_key : string
+        Header of the timestamp column in the input file (default: 'Time')
+    
+    Returns
+    --------
+    out :  list of tuples
+        (metric_name, value)
+    '''
+    
+    # Calculate the total number of actions and sessions in the test data
+    actions = len(test_data)
+    sessions = len(test_data[session_key].unique())
+    count = 0
+    print('START evaluation of ', actions, ' actions in ', sessions, ' sessions')
+    
+    # Reset all metrics before evaluation
+    for m in metrics:
+        m.reset()
+    
+    # Sort the test data by session ID and timestamp
+    test_data.sort_values([session_key, time_key], inplace=True)
+    
+    # Get the unique item IDs from the training data
+    items_to_predict = train_data[item_key].unique()
+    
+    # Initialize variables for tracking previous item ID and session ID
+    prev_iid, prev_sid = -1, -1
+    pos = 0
+    
+    # Iterate through each action in the test data
+    for i in range(len(test_data)):
+        
+        # Print progress every 1000 actions
+        if count % 1000 == 0:
+            print( '    eval process: ', count, ' of ', actions, ' actions: ', ( count / actions * 100.0 ), ' %')
+        
+        # Get the session ID, item ID, and timestamp for the current action
+        sid = test_data[session_key].values[i]
+        iid = test_data[item_key].values[i]
+        ts = test_data[time_key].values[i]
+        
+        # Check if the session ID has changed
+        if prev_sid != sid:
+            prev_sid = sid
+            pos = 0
+        else:
+            # Check if specific items are provided for prediction
+            if items is not None:
+                if np.in1d(iid, items):
+                    items_to_predict = items
+                else:
+                    items_to_predict = np.hstack(([iid], items))  
+                    
+            # Call the start_predict method for each metric
+            for m in metrics:
+                if hasattr(m, 'start_predict'):
+                    m.start_predict(pr)
+            
+            # Predict the next item using the baseline predictor
+            preds = pr.predict_next(sid, prev_iid, items_to_predict, timestamp=ts)
+            
+            # Call the stop_predict method for each metric
+            for m in metrics:
+                if hasattr(m, 'stop_predict'):
+                    m.stop_predict(pr)
+            
+            # Replace NaN values with 0 and sort the predictions in descending order
+            preds[np.isnan(preds)] = 0
+            preds.sort_values(ascending=False, inplace=True)
+            
+            # Call the add method for each metric
+            for m in metrics:
+                if hasattr(m, 'add'):
+                    m.add(preds, iid, for_item=prev_iid, session=sid, position=pos)
+            
+            pos += 1
+            
+        prev_iid = iid
+        
+        count += 1
+
+    print('END evaluation')
+
+    # Get the results for each metric
+    res = []
+    for m in metrics:
+        res.append(m.result())
+
+    return res
 
 class MRR: 
     '''
