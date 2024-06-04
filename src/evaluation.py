@@ -89,7 +89,8 @@ def evaluate_sessions(pr, metrics, test_data, train_data, items=None, cut_off=20
                     m.start_predict(pr)
             
             # Predict the next item using the baseline predictor
-            preds = pr.predict_next(sid, prev_iid, items_to_predict, timestamp=ts)
+            preds = pr.predict_next(sid, prev_iid, items_to_predict, #timestamp=ts (is not required)
+                                    )
             
             # Call the stop_predict method for each metric
             for m in metrics:
