@@ -291,3 +291,35 @@ class OfflineDQNAgent:
             q_values = self.model(states_tensor)
         top_actions = torch.topk(q_values, n_predictions, dim=1).indices
         return top_actions.tolist()
+
+    def predict_scores(self, states, predict_for_item_ids):
+        # deze functie wordt de predict_next() in de recsys code
+        '''
+        Predict the scores for a given state. Input is a list of states.
+        For example, if n_history = 3, the state should be a list of 3 integers that indicate the last 3 actions taken in the environment, aka the item ids.
+        
+        Parameters
+        --------
+        states : list
+            List of states, where each state is a list of item IDs.
+        predict_for_item_ids : 1D array
+            IDs of items for which the network should give prediction scores.
+            
+        Returns
+        --------
+        out : list
+            List of prediction scores for the selected items.
+        '''        
+        if not isinstance(states, list):
+            states = [states]
+        states_tensor = torch.FloatTensor(states).to(self.device)
+        with torch.no_grad():
+            q_values = self.model(states_tensor)
+        
+        # Extract the scores for the items in predict_for_item_ids
+        scores = []
+        for q_value in q_values:
+            item_scores = [q_value[item_id].item() for item_id in predict_for_item_ids]
+            scores.append(item_scores)
+        
+        return scores
