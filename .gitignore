@@ -167,3 +167,8 @@ data/retailrocket/prepared/train-item-views_test.txt
 data/retailrocket/prepared/train-item-views_train_full.txt
 data/retailrocket/prepared/train-item-views_train_tr.txt
 data/retailrocket/prepared/train-item-views_train_valid.txt
+data/diginetica/prepared/train-item-views_test.txt
+data/diginetica/prepared/train-item-views_train_full.txt
+data/diginetica/prepared/train-item-views_train_tr.txt
+data/diginetica/prepared/train-item-views_train_valid.txt
+data/diginetica/raw/train-item-views.csv
