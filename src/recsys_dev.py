@@ -100,7 +100,9 @@ class OfflineDQNAgent:
         self.kpi_tracker = {
             'episode_rewards': [],
             'losses': []
-        }
+            }
+        self.session = -1
+        self.session_items = []
 
     def select_action(self, state, epsilon=0.1):
         """
@@ -211,8 +213,7 @@ class OfflineDQNAgent:
         torch.save(self.model.state_dict(), f'trained agents/{dataset_name}/{file_name}')
         print(f'Model successfully saved!')
         print(f"Saved path: \ntrained agents/{dataset_name}/{file_name}")
-        
-      
+             
     def load_model(self, filepath):        
         '''
         Loads a pre-trained model from the given file path.
@@ -234,12 +235,12 @@ class OfflineDQNAgent:
         '''        
         if not isinstance(states, list):
             states = [states]
-        states_tensor = torch.FloatTensor(states).to(self.device)
+        states_tensor = torch.FloatTensor(np.array(states)).to(self.device)
         with torch.no_grad():
             q_values = self.model(states_tensor)
         top_actions = torch.topk(q_values, n_predictions, dim=1).indices
         return top_actions.tolist()
-
+  
     def predict_scores(self, states, predict_for_item_ids):
         # deze functie wordt de predict_next() in de recsys code
         '''
@@ -260,7 +261,7 @@ class OfflineDQNAgent:
         '''        
         if not isinstance(states, list):
             states = [states]
-        states_tensor = torch.FloatTensor(states).to(self.device)
+        states_tensor = torch.FloatTensor(np.array(states)).to(self.device)
         with torch.no_grad():
             q_values = self.model(states_tensor)
         
@@ -268,7 +269,7 @@ class OfflineDQNAgent:
         scores = []
         for q_value in q_values:
             item_scores = [q_value[item_id].item() for item_id in predict_for_item_ids]
-            scores.append(item_scores)
+            scores.extend(item_scores)
         
         return scores
 
@@ -366,8 +367,9 @@ class rl_recommender():
         self.session_key = session_key
         self.item_key = item_key
         self.time_key = time_key
-        
-        
+        self.session = -1
+        self.session_items = []
+               
     def convert_to_episodes(self, data: pd.DataFrame):
         '''
         Convert the dataset to episodes for the SSAR model. 
@@ -411,7 +413,6 @@ class rl_recommender():
         print('Episode tensors created successfully')
         return tensor_episodes
        
-    
     def fit(self, train, test=None):
         '''
         Trains the predictor.
@@ -502,6 +503,35 @@ class rl_recommender():
             # load weights of network
             print(f'Loading pretrained model from: {self.file_path}')
             self.agent.load_model(filepath=self.file_path)
+    
+    def predict_next(self, session_id, input_item_id, predict_for_item_ids, input_user_id=None, timestamp=0, skip=False, mode_type='view'):
+        
+        # Saving the interacted item ids in the session
+        # Check if the session id is the same as the previous session id
+        if session_id != self.session: # if not, empty the session_items list and create a new list with n_history length list with all zeros
+            self.session_items = np.zeros(self.n_history)
+            self.session = session_id
+        
+        if mode_type == 'view': # if the event is a view, add the item to the session_items list
+            # move all items one step back and add the new item to the last position
+            print(f'session items before update{self.session_items}')
+            self.session_items = np.roll(self.session_items, -1)
+            print(f'session items after roll{self.session_items}')
+            self.session_items[-1] = input_item_id
+            print(f'session items after update{self.session_items}')
+            
+        if skip: # if skipped, return the last item in the session_items list
+            return
+        
+        # the session items list is now the state that is used to predict the next item with the DQN trained agent
+        preds = self.agent.predict_scores(states = self.session_items,
+                                          predict_for_item_ids = predict_for_item_ids)
+    
+        print(preds)        
+        # return the prediction scores for the items in the predict_for_item_ids list
+        # the prediction scores are the Q-values of the DQN model
+
+        return pd.Series(data=preds, index=predict_for_item_ids)
                         
     # def predict_next(self, session_id, input_item_id, predict_for_item_ids, input_user_id=None, timestamp=0, skip=False, type='view'):
     #     '''
@@ -523,35 +553,3 @@ class rl_recommender():
         
     #     '''
     #     pass    
-    
-    # def predict_scores(self, states, predict_for_item_ids):
-    #     # deze functie wordt de predict_next() in de recsys code
-    #     '''
-    #     Predict the scores for a given state. Input is a list of states.
-    #     For example, if n_history = 3, the state should be a list of 3 integers that indicate the last 3 actions taken in the environment, aka the item ids.
-        
-    #     Parameters
-    #     --------
-    #     states : list
-    #         List of states, where each state is a list of item IDs.
-    #     predict_for_item_ids : 1D array
-    #         IDs of items for which the network should give prediction scores.
-            
-    #     Returns
-    #     --------
-    #     out : list
-    #         List of prediction scores for the selected items.
-    #     '''        
-    #     if not isinstance(states, list):
-    #         states = [states]
-    #     states_tensor = torch.FloatTensor(states).to(self.device)
-    #     with torch.no_grad():
-    #         q_values = self.model(states_tensor)
-        
-    #     # Extract the scores for the items in predict_for_item_ids
-    #     scores = []
-    #     for q_value in q_values:
-    #         item_scores = [q_value[item_id].item() for item_id in predict_for_item_ids]
-    #         scores.append(item_scores)
-        
-    #     return scores
