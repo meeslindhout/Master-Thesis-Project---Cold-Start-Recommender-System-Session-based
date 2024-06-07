@@ -16,6 +16,7 @@ import random
 import os
 from collections import defaultdict, deque
 from datetime import datetime
+import wandb
 
 
 class OfflineEnv(gym.Env):
@@ -134,13 +135,16 @@ class OfflineDQNAgent:
             None
         """
         self.memory.append((state, action, reward, next_state, done))
+        
+        # Log step-level metrics to wandb
+        wandb.log({"reward": reward, "done": done})
 
-    def train(self, batch_size=512):
+    def train(self, batch_size=64):
         """
         Trains the reinforcement learning model using a batch of experiences from the memory buffer.
 
         Args:
-            batch_size (int): The size of the batch to sample from the memory buffer. Defaults to 512.
+            batch_size (int): The size of the batch to train defaults to 64.
 
         Returns:
             None
@@ -167,6 +171,9 @@ class OfflineDQNAgent:
         self.optimizer.step()
 
         self.kpi_tracker['losses'].append(loss.item())
+        
+        # log loss to wandb
+        wandb.log({'loss': loss.item()})
 
     def update_target_model(self):
         self.target_model.load_state_dict(self.model.state_dict())
@@ -326,7 +333,7 @@ class rl_recommender():
     def __init__(self, 
                  n_history=None, reward_dict = {}, event_key='event',
                  
-                 mode='training', num_episodes=1000, batch_size=64, target_update_freq=None, memory=10_000, learning_rate=3e-4, gamma=0.99, dataset_name='dataset_not_undefined',
+                 mode='training', num_episodes=1000, batch_size=64, target_update_freq=None, memory=10_000, learning_rate=3e-4, gamma=0.99, dataset_name='dataset_not_undefined', log_to_wandb=True,
                  
                  file_path=None, state_size=None, action_size=None,
                  
@@ -347,6 +354,7 @@ class rl_recommender():
         self.learning_rate = learning_rate
         self.gamma = gamma
         self.dataset_name = dataset_name
+        self.log_to_wandb = log_to_wandb
         
         # when model is loaded
         self.file_path = file_path
@@ -406,8 +414,15 @@ class rl_recommender():
     
     def fit(self, train, test=None):
         '''
-        TODO: Write documentation for fit function
-        '''
+        Trains the predictor.
+        
+        Parameters
+        --------
+        data: pandas.DataFrame
+            Training data. It contains the transactions of the sessions. It has one column for session IDs, one for item IDs, one for the timestamp of the events (unix timestamps) and one for the events that explains the type of event.
+            It must have a header. Column names are arbitrary, but must correspond to the ones you set during the initialization of the network (session_key, item_key, time_key properties).
+            
+        '''            
         if self.mode == 'training':
             # Preprocess data
             print('Started converting train data to tensors...')
@@ -426,6 +441,25 @@ class rl_recommender():
                 memory=self.memory,
                 mode=self.mode
                 )
+            
+            # Initialise wandb to track metrics
+            wandb.init(
+                # set the wandb project where this run will be logged. Dataset name and n_history determine project name
+                project='RecSys RL',
+                config={
+                    "learning_rate": self.learning_rate,
+                    "gamma": self.agent.gamma,
+                    "architecture": "DQN",
+                    "dataset_name": self.dataset_name,
+                    "version": "0.1",
+                    "epochs": self.num_episodes,
+                    "n_history": self.n_history,
+                    "memory": self.memory,
+                    "batch_size": self.batch_size,
+                    "target_update_freq": self.target_update_freq,
+                },
+                mode="online" if self.log_to_wandb else "disabled"
+            )
             # Train RL
             print('Started training loop...')
             for episode in range(self.num_episodes):
@@ -444,6 +478,15 @@ class rl_recommender():
                     self.agent.update_target_model()
 
                 self.agent.kpi_tracker['episode_rewards'].append(episode_reward)
+                
+                # Log episode reward and success rate to wandb
+                wandb.log({
+                    "episode": episode,
+                    "episode_reward": episode_reward,
+                    "success_rate": int(episode_reward > 0)  # Assuming success is defined as positive reward
+                })
+
+                
                 print(f"Episode {episode + 1}/{self.num_episodes} completed with reward: {episode_reward}")            
             print('Training completed!')
             
@@ -460,12 +503,6 @@ class rl_recommender():
             print(f'Loading pretrained model from: {self.file_path}')
             self.agent.load_model(filepath=self.file_path)
                         
-            
-            
-            
-            
-
-
     # def predict_next(self, session_id, input_item_id, predict_for_item_ids, input_user_id=None, timestamp=0, skip=False, type='view'):
     #     '''
     #     Gives predicton scores for a selected set of items on how likely they be the next item in the session.

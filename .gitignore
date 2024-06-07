@@ -162,7 +162,6 @@ cython_debug/
 #.idea/
 data/retailrocket/unprocessed/events.csv
 data/tmall/unprocessed/dataset15.csv
-trained agents/*.pth
 data/retailrocket/prepared/train-item-views_test.txt
 data/retailrocket/prepared/train-item-views_train_full.txt
 data/retailrocket/prepared/train-item-views_train_tr.txt
@@ -172,3 +171,5 @@ data/diginetica/prepared/train-item-views_train_full.txt
 data/diginetica/prepared/train-item-views_train_tr.txt
 data/diginetica/prepared/train-item-views_train_valid.txt
 data/diginetica/raw/train-item-views.csv
+trained agents/**/*.pth
+wandb/
