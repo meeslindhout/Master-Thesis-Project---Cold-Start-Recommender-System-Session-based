@@ -514,11 +514,11 @@ class rl_recommender():
         
         if mode_type == 'view': # if the event is a view, add the item to the session_items list
             # move all items one step back and add the new item to the last position
-            print(f'session items before update{self.session_items}')
+            # print(f'session items before update{self.session_items}')
             self.session_items = np.roll(self.session_items, -1)
-            print(f'session items after roll{self.session_items}')
+            # print(f'session items after roll{self.session_items}')
             self.session_items[-1] = input_item_id
-            print(f'session items after update{self.session_items}')
+            # print(f'session items after update{self.session_items}')
             
         if skip: # if skipped, return the last item in the session_items list
             return
@@ -527,7 +527,7 @@ class rl_recommender():
         preds = self.agent.predict_scores(states = self.session_items,
                                           predict_for_item_ids = predict_for_item_ids)
     
-        print(preds)        
+        # print(preds)        
         # return the prediction scores for the items in the predict_for_item_ids list
         # the prediction scores are the Q-values of the DQN model
 
