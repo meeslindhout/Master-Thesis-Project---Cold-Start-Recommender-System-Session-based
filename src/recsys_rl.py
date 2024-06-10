@@ -452,7 +452,7 @@ class rl_recommender():
                     "gamma": self.agent.gamma,
                     "architecture": "DQN",
                     "dataset_name": self.dataset_name,
-                    "version": "1.0",
+                    "version": 1.0,
                     "epochs": self.num_episodes,
                     "n_history": self.n_history,
                     "reward_dict": str(self.reward_dict)
