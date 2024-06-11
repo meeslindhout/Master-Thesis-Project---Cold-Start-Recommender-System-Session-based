@@ -334,7 +334,7 @@ class rl_recommender():
     def __init__(self, 
                  n_history=None, reward_dict = {}, event_key='event',
                  
-                 mode='training', num_episodes=1000, batch_size=64, target_update_freq=None, memory=10_000, learning_rate=3e-4, gamma=0.99, dataset_name='dataset_not_undefined', log_to_wandb=True,
+                 mode='training', num_episodes=1000, batch_size=64, target_update_freq=None, memory=10_000, learning_rate=3e-4, gamma=0.99, dataset_name='dataset_not_undefined', log_to_wandb=True, custom_wandb_note=None,
                  
                  file_path=None, state_size=None, action_size=None,
                  
@@ -356,6 +356,7 @@ class rl_recommender():
         self.gamma = gamma
         self.dataset_name = dataset_name
         self.log_to_wandb = log_to_wandb
+        self.custom_wandb_note = custom_wandb_note
         
         # when model is loaded
         self.file_path = file_path
@@ -447,6 +448,7 @@ class rl_recommender():
             wandb.init(
                 # set the wandb project where this run will be logged. Dataset name and n_history determine project name
                 project='RecSys RL',
+                notes=self.custom_wandb_note,
                 config={
                     "learning_rate": self.learning_rate,
                     "gamma": self.agent.gamma,
