@@ -405,7 +405,7 @@ class rl_recommender():
         for _, row in episodes_df.iterrows():
             state_tensor = torch.tensor(row['state'], dtype=torch.int64).to(device)
             action_tensor = torch.tensor(row['action'], dtype=torch.int64).to(device)
-            reward_tensor = torch.tensor(row['reward'], dtype=torch.int16).to(device)
+            reward_tensor = torch.tensor(row['reward'], dtype=torch.float16).to(device)
             next_state_tensor = torch.tensor(row['next_state'], dtype=torch.int64).to(device)
 
             episodes_tensor[row['session_id']].append((state_tensor, action_tensor, reward_tensor, next_state_tensor))
