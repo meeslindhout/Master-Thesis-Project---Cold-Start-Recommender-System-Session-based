@@ -493,6 +493,7 @@ class rl_recommender():
                 
                 print(f"Episode {episode + 1}/{self.num_episodes} completed with reward: {episode_reward}")            
             print('Training completed!')
+            wandb.finish()
             
             # Safe trained model
             print('Saving model...')
