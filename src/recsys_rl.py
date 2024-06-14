@@ -83,7 +83,6 @@ class OfflineDQNAgent:
     def __init__(self, state_size=None, action_size=None, learning_rate=3e-4, gamma=0.99, n_history=1, memory = 10_000, mode='training'):
         '''
         TODO: write offline DQN agent class documentation
-        TODO: add more kpi performance metrics and connect to wandb
         '''
         self.state_size = state_size
         self.action_size = action_size
@@ -300,8 +299,7 @@ class rl_recommender():
     target_update_freq: int
         Target update frequency of DQN, must be found by trial and error / hyper parameter tuning.
     memory: int
-        Memory of DQN agent (default: 10.000) more info see: https://ai.stackexchange.com/questions/42462/what-is-the-purpose-of-a-replay-memory-buffer-in-deep-q-learning-networks
-        TODO: check if 10.000 makes sense in recommender systems
+        Memory of DQN agent (default: 100.000) more info see: https://ai.stackexchange.com/questions/42462/what-is-the-purpose-of-a-replay-memory-buffer-in-deep-q-learning-networks
     learning_rate : float
         learning rate (default: 3e-4)
     gamma: float
@@ -334,7 +332,7 @@ class rl_recommender():
     def __init__(self, 
                  n_history=None, reward_dict = {}, event_key='event',
                  
-                 mode='training', num_episodes=1000, batch_size=64, target_update_freq=None, memory=10_000, learning_rate=3e-4, gamma=0.99, dataset_name='dataset_not_undefined', log_to_wandb=True, custom_wandb_note=None,
+                 mode='training', num_episodes=1000, batch_size=64, target_update_freq=None, memory=100_000, learning_rate=3e-4, gamma=0.99, dataset_name='dataset_not_undefined', log_to_wandb=True, custom_wandb_note=None,
                  
                  file_path=None, state_size=None, action_size=None,
                  
