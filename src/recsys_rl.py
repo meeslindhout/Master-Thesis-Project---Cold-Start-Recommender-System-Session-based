@@ -383,10 +383,14 @@ class rl_recommender():
         grouped = data.groupby(self.session_key)
 
         for session_id, group in grouped:
+            # initialize the current state with zeros list of length n_history
             current_state = [0] * self.n_history
+            # iterate over the rows and create the steps for each episode
             for i in range(len(group)):
                 action = group.iloc[i][self.item_key]
+                # reward is given based on the event type
                 reward = self.reward_dict[group.iloc[i][self.event_key]]
+                # the next state is the current state with the action added to the end and the first item removed
                 next_state = current_state[1:] + [action]
 
                 episodes_list.append({
