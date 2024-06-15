@@ -22,6 +22,17 @@ import wandb
 class OfflineEnv(gym.Env):
     '''
     Custom offline gym environment that 'simulates' the actions of a recommender system. 
+    
+    The OfflineEnv class implements the step method, which is responsible for taking an action in the environment. 
+    In the step method, the first line retrieves the current episode from the episodes list based on the current_episode index. 
+    Then, the current_step counter is incremented. Next, there is an if statement that checks if the current_step is greater than 
+    or equal to the length of the episode. If this condition is true, it means that we have reached the end of the episode, and the 
+    environment is considered done. In this case, the method sets the done variable to True, initializes the next_state as an array 
+    of zeros with the same size as the state, and sets the reward to 0. On the other hand, if the current_step is still within the 
+    episode, the method retrieves the next state from the episode based on the current_step index. It also retrieves the reward from 
+    the episode. The done variable is set to True if the current_step is equal to the length of the episode minus 1, 
+    indicating that we have reached the last step of the episode.
+    Finally, the method returns the next_state, reward, done, and an empty dictionary as the information about the step.
     '''
     def __init__(self, episodes, n_history):
         super(OfflineEnv, self).__init__()
